@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """scanner.py - 扫描三丰云产品延期状态（DOM 页面元素抓取版）
 
@@ -395,3 +395,4 @@ class SanfengyunScanner:
             return bool(result)
         except Exception:
             return False
+

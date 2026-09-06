@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 模块3: renewer - 三丰云填写延期表单并提交
@@ -196,3 +196,4 @@ class SanfengyunRenewer:
         except Exception as e:
             logger.error(f"[延期] 提交异常: {e}")
             return {"success": False, "response_text": str(e), "next_renew_time": ""}
+

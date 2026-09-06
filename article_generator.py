@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 三丰云免费产品自动延期 - 文章生成模块
@@ -190,3 +190,4 @@ class ArticleGenerator:
 """
 
         return title, content
+

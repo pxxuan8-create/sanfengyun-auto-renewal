@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 模块2: publisher - 博客园自动发文
@@ -263,3 +263,4 @@ class CnblogsPublisher:
             """)
         except Exception:
             return ""
+

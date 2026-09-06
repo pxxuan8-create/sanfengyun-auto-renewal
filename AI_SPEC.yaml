@@ -1,4 +1,4 @@
-# =============================================================================
+﻿# =============================================================================
 # AI_SPEC.yaml — MACHINE-ONLY PROJECT SPECIFICATION. HUMAN NOT REQUIRED TO READ.
 # =============================================================================
 # INSTRUCTION FOR LLM (READ FIRST, PARSE STRICTLY):
@@ -42,7 +42,7 @@ meta:
   external_services:
     - sanfengyun.com (cloud control panel, Vue SPA)
     - cnblogs.com (blog platform)
-    - dingtalk webhook robot (notification)
+    - smtp email (notification via SMTP_HOST/SMTP_USER/SMTP_PASS/SMTP_TO env)
 
 persistence_schema:
   file: instance_timestamps.json
@@ -80,7 +80,7 @@ global_constants:
 # =============================================================================
 # FUNCTION CATALOG
 # reusable: yes | partial | no
-# coupling: none | framework | external | business_sanfengyun | business_blogcn | business_dingtalk | full_business
+# coupling: none | framework | external | business_sanfengyun | business_blogcn | business_email | full_business
 # side_effect: list of external effects
 # =============================================================================
 
@@ -534,126 +534,96 @@ function_catalog:
     description: single fixed template + current date (fallback/backup generator)
     extract_note: simple template pattern reusable
 
-  # ---------------- dingtalk_notify.py (DingTalkNotifier) ----------------
+  # ---------------- email_notify.py (EmailNotifier) ----------------
 
-  DingTalkNotifier._sign:
-    signature: "def _sign(self) -> dict"
-    module: dingtalk_notify.py
-    reusable: yes
+  EmailNotifier.__init__:
+    signature: "def __init__(self)"
+    module: email_notify.py
+    reusable: partial
     coupling: external
     side_effect: []
-    output: "{timestamp: str, sign: str}"
     description: >
-      DingTalk HMAC-SHA256 sign: timestamp_ms, string_to_sign = f"{ts}\n{secret}",
-      sign = base64(hmac_sha256(secret, string_to_sign)).
-    extract_note: >
-      GENERIC DingTalk robot sign utility. Copy-paste directly to any project
-      using DingTalk custom robot with sign security.
+      Read SMTP config from env: SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS/SMTP_TO
+      (fallback aliases EMAIL_USERNAME/EMAIL_PASSWORD/RECEIVER_EMAIL). results dict
+      accumulates per-product outcome for one summary email at end of run.
+    extract_note: generic SMTP notifier skeleton; env names project-specific
 
-  DingTalkNotifier._get_url:
-    signature: "def _get_url(self) -> str"
-    module: dingtalk_notify.py
+  EmailNotifier.send_text:
+    signature: "def send_text(self, content: str) -> bool"
+    module: email_notify.py
     reusable: yes
+    coupling: external
+    side_effect: [log]
+    description: process-type notification → log only (avoid mail spam)
+    extract_note: generic
+
+  EmailNotifier.notify_scan:
+    signature: "def notify_scan(self, products: list)"
+    module: email_notify.py
+    reusable: partial
+    coupling: business_sanfengyun
+    side_effect: []
+    description: seed default "未到时间/审核中" result rows from scan list
+    extract_note: pattern reusable
+
+  EmailNotifier.notify_submit_success:
+    signature: "def notify_submit_success(self, product_name, article_url='', response='', next_time='', next_run_ts=0, product=None)"
+    module: email_notify.py
+    reusable: partial
+    coupling: business_sanfengyun
+    side_effect: []
+    description: >
+      Record success. days from EXTEND_DAYS by ptype (vps=5, vhost=30);
+      new_expire = old_expire + days (email body "到期时间：A → B").
+    extract_note: pattern reusable; EXTEND_DAYS project-specific
+
+  EmailNotifier.notify_submit_failed:
+    signature: "def notify_submit_failed(self, product_name, error, next_run_ts=0, product=None)"
+    module: email_notify.py
+    reusable: partial
+    coupling: business_sanfengyun
+    side_effect: []
+    description: record failure with error text
+    extract_note: pattern reusable
+
+  EmailNotifier.notify_waiting:
+    signature: "def notify_waiting(self, product_name, reason, next_run_ts=0)"
+    module: email_notify.py
+    reusable: partial
+    coupling: business_sanfengyun
+    side_effect: []
+    description: record skip reason (in_review / not_activated / not_yet)
+    extract_note: pattern reusable
+
+  EmailNotifier.notify_error:
+    signature: "def notify_error(self, error: str)"
+    module: email_notify.py
+    reusable: partial
     coupling: external
     side_effect: []
-    output: signed webhook url string
-    description: build webhook url with timestamp + sign params
-    extract_note: reusable with _sign
+    description: record script-level error into results
+    extract_note: pattern reusable
 
-  DingTalkNotifier.send_text:
-    signature: "def send_text(self, content: str) -> bool"
-    module: dingtalk_notify.py
-    reusable: yes
+  EmailNotifier.build_body:
+    signature: "def build_body(self) -> str"
+    module: email_notify.py
+    reusable: partial
+    coupling: business_sanfengyun
+    side_effect: []
+    description: compose clean summary text (no process logs), per-product lines
+    extract_note: template reusable
+
+  EmailNotifier.send_summary:
+    signature: "def send_summary(self) -> bool"
+    module: email_notify.py
+    reusable: partial
     coupling: external
-    side_effect: [http post]
-    description: send plain text message
-    extract_note: generic dingtalk text sender
-
-  DingTalkNotifier.send_markdown:
-    signature: "def send_markdown(self, title: str, text: str) -> bool"
-    module: dingtalk_notify.py
-    reusable: yes
-    coupling: external
-    side_effect: [http post]
-    description: send markdown message
-    extract_note: generic dingtalk markdown sender
-
-  DingTalkNotifier._send:
-    signature: "def _send(self, data: dict) -> bool"
-    module: dingtalk_notify.py
-    reusable: yes
-    coupling: external
-    side_effect: [http post]
-    hard_constraint: must catch all exceptions; notification failure must NOT crash main
-    description: post json to signed webhook, 10s timeout, swallow exceptions
-    extract_note: generic webhook post wrapper; reusable for any HTTP notification
-
-  DingTalkNotifier.notify_scan:
-    signature: "def notify_scan(self, products: list)"
-    module: dingtalk_notify.py
-    reusable: partial
-    coupling: business_dingtalk
-    side_effect: [http post]
-    description: format scan results with status icons (🟢not_yet 🔴ready/in_review ⚫not_activated)
-    extract_note: status-icon mapping pattern reusable; content is project-specific
-
-  DingTalkNotifier.notify_countdown_urgent:
-    signature: "def notify_countdown_urgent(self, product_name, next_time, remain_str)"
-    module: dingtalk_notify.py
-    reusable: partial
-    coupling: business_dingtalk
-    side_effect: [http post]
-    description: urgent notify when trigger within 30min (URGENT_HINT_THRESHOLD=1800)
-    extract_note: pattern reusable
-
-  DingTalkNotifier.notify_trigger_fired:
-    signature: "def notify_trigger_fired(self, product_name, next_time)"
-    module: dingtalk_notify.py
-    reusable: partial
-    coupling: business_dingtalk
-    side_effect: [http post]
-    extract_note: pattern reusable
-
-  DingTalkNotifier.notify_article_posted:
-    signature: "def notify_article_posted(self, product_name, article_url, title)"
-    module: dingtalk_notify.py
-    reusable: partial
-    coupling: business_dingtalk
-    side_effect: [http post]
-    extract_note: pattern reusable
-
-  DingTalkNotifier.notify_submit_success:
-    signature: "def notify_submit_success(self, product_name, article_url, response, next_time, next_run_ts)"
-    module: dingtalk_notify.py
-    reusable: partial
-    coupling: business_dingtalk
-    side_effect: [http post]
-    description: notify submit success with NEXT run time (core info for user)
-    extract_note: pattern reusable
-
-  DingTalkNotifier.notify_submit_failed:
-    signature: "def notify_submit_failed(self, product_name, error, next_run_ts)"
-    module: dingtalk_notify.py
-    reusable: partial
-    coupling: business_dingtalk
-    side_effect: [http post]
-    extract_note: pattern reusable
-
-  DingTalkNotifier.notify_waiting:
-    signature: "def notify_waiting(self, product_name, reason, next_run_ts)"
-    module: dingtalk_notify.py
-    reusable: partial
-    coupling: business_dingtalk
-    side_effect: [http post]
-    extract_note: pattern reusable
-
-  DingTalkNotifier.notify_error:
-    signature: "def notify_error(self, error: str)"
-    module: dingtalk_notify.py
-    reusable: partial
-    coupling: business_dingtalk
-    side_effect: [http post]
-    extract_note: pattern reusable
+    side_effect: [smtp send]
+    description: >
+      Send ONE summary email at end of run. Subject state by results:
+      any 失败→【三丰云延期失败】; else any 成功→【三丰云延期成功】; else【三丰云延期检查】.
+      Port 465→SMTP_SSL, else SMTP+STARTTLS. Never crashes on SMTP error.
+    extract_note: generic SMTP summary sender; subject rules project-specific
 
 # =============================================================================
 # DATA SCHEMAS
@@ -685,12 +655,6 @@ data_schema:
       email: str
       password: str
       username: str               # blog url path: cnblogs.com/<username>
-    dingtalk:
-      enabled: bool               # false = skip all notifications
-      webhook: str
-      secret: str
-      at_all: bool
-      at_mobiles: list
     settings:
       dry_run: bool               # true = fill form but NO submit (test mode)
       scan_scope: str             # "all" | "vps" | "vhost"
@@ -707,6 +671,9 @@ data_schema:
     logging:
       level: str                  # "INFO" | "DEBUG" | "WARNING"
       file: str                   # log file path; "" = stdout only
+    # 敏感字段（phone/password/email/username/product url）可被环境变量覆盖，
+    # 覆盖关系见 sanfengyun_renewal.load_config 的 env_overrides / url_overrides。
+    # 通知走 SMTP 邮件：SMTP_HOST / SMTP_USER / SMTP_PASS / SMTP_TO（email_notify.py）
 
 # =============================================================================
 # STATE MACHINE (form_status based)
@@ -898,11 +865,6 @@ reusable_template_extract_map:
     - setup_logging                # generic logging config
     - _human_countdown             # seconds → "Xd Xh Xm" formatter
     - CnblogsPublisher._compress_screenshot  # generic image compression
-    - DingTalkNotifier._sign       # DingTalk HMAC sign
-    - DingTalkNotifier._get_url    # signed webhook url builder
-    - DingTalkNotifier.send_text   # DingTalk text sender
-    - DingTalkNotifier.send_markdown  # DingTalk markdown sender
-    - DingTalkNotifier._send       # generic webhook post wrapper
     - ArticleGenerator.generate    # template-pool random article generator (rewrite templates)
 
   need_minor_adaptation:
@@ -925,7 +887,7 @@ reusable_template_extract_map:
     - SanfengyunRenewer._fill_url              # multi-selector fallback; change selectors
     - SanfengyunRenewer._upload_screenshot     # file upload; change selector
     - run_loop                                 # slice-sleep loop skeleton; rewrite business branches
-    - DingTalkNotifier.notify_*                # notification formatters; change content
+    - EmailNotifier.notify_*                   # notification formatters; change content
     - SanfengyunScanner.scan_all               # batch scan pattern; rewrite scan logic
 
   business_locked_cannot_extract:
@@ -951,7 +913,7 @@ porting_hint:
     steps:
       - "reuse infra: load_instance_state, save_instance_state, setup_logging, _human_countdown"
       - "reuse loop skeleton: run_loop slice-sleep + per-instance countdown"
-      - "reuse notification: DingTalkNotifier (or adapt _send to other IM webhook)"
+      - "reuse notification: EmailNotifier (SMTP) or adapt send_summary to other IM webhook"
       - "reuse stealth page: new_page"
       - "REWRITE: DOM scanner (scan_product) for target platform"
       - "REWRITE: form submit (fill_and_submit) for target platform"
@@ -962,7 +924,6 @@ porting_hint:
     description: "extract reusable utilities to a common lib"
     extract:
       - "_compress_screenshot (image compression)"
-      - "_sign + _get_url + send_text + send_markdown + _send (dingtalk notification)"
       - "_handle_checkbox (captcha bypass)"
       - "_fix_cookie_domain (cross-subdomain cookie)"
       - "_click_renew_tab (fuzzy text click)"
@@ -981,3 +942,4 @@ llm_modify_guidance:
   - "Output diff-style changes; full rewrite only when explicitly requested."
   - "If introducing new external dependency: add to meta.major_deps."
   - "If changing cooldown values: update both global_constants.cooldown_seconds AND state_machine transition_table AND _execute_single_product code."
+

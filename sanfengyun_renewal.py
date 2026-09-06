@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 三丰云免费产品自动延期脚本 v3
@@ -33,7 +33,7 @@ from scanner import SanfengyunScanner
 from publisher import CnblogsPublisher
 from renewer import SanfengyunRenewer
 from article_generator import ArticleGenerator
-from dingtalk_notify import DingTalkNotifier
+from email_notify import EmailNotifier
 
 
 # ==========================================================================
@@ -102,9 +102,36 @@ def _instance_key(product: dict) -> str:
 
 
 def load_config() -> dict:
+    """加载 config.yaml，并允许用环境变量覆盖敏感字段（GitHub Secrets 注入）。"""
     cfg_path = BASE_DIR / "config.yaml"
     with open(cfg_path, "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
+
+    # 环境变量覆盖（GitHub Actions Secrets 优先，其次用配置文件里的值）
+    env_overrides = {
+        ("sanfengyun", "phone"): "SANFENGYUN_PHONE",
+        ("sanfengyun", "password"): "SANFENGYUN_PASSWORD",
+        ("cnblogs", "email"): "CNBLOGS_EMAIL",
+        ("cnblogs", "password"): "CNBLOGS_PASSWORD",
+        ("cnblogs", "username"): "CNBLOGS_USERNAME",
+    }
+    for (section, key), env_name in env_overrides.items():
+        val = os.environ.get(env_name, "").strip()
+        if val:
+            cfg.setdefault(section, {})[key] = val
+
+    # 产品 URL 覆盖（可选，避免把实例 ID 写进公开仓库）
+    url_overrides = {
+        "vps": "SANFENGYUN_VPS_URL",
+        "vhost": "SANFENGYUN_VHOST_URL",
+    }
+    for product in cfg.get("products", []):
+        env_name = url_overrides.get(product.get("key", ""))
+        if env_name:
+            val = os.environ.get(env_name, "").strip()
+            if val:
+                product["url"] = val
+
     setup_logging(cfg.get("logging", {}))
     return cfg
 
@@ -272,7 +299,7 @@ def run_test(cfg: dict, notifier):
                     if not publisher.login(pub_page):
                         logger.error("博客园登录失败")
                         for p in can_renew_products:
-                            notifier.notify_submit_failed(p["name"], "博客园登录失败")
+                            notifier.notify_submit_failed(p["name"], "博客园登录失败", product=p)
                         can_renew_products = []
                     else:
                         for product in can_renew_products:
@@ -284,7 +311,7 @@ def run_test(cfg: dict, notifier):
                             if not pub_ok or not article_url:
                                 product["article_url"] = ""
                                 product["screenshot_path"] = ""
-                                notifier.notify_submit_failed(product["name"], "博客园发布失败")
+                                notifier.notify_submit_failed(product["name"], "博客园发布失败", product=product)
                                 continue
                             logger.info(f"  ✅ {product['name']}: {article_url}")
                             product["article_url"] = article_url
@@ -408,7 +435,7 @@ def run_once(cfg: dict, notifier):
                 if not publisher.login(pub_page):
                     logger.error("博客园登录失败")
                     for p in can_renew_products:
-                        notifier.notify_submit_failed(p["name"], "博客园登录失败")
+                        notifier.notify_submit_failed(p["name"], "博客园登录失败", product=p)
                     can_renew_products = []
                 else:
                     for product in can_renew_products:
@@ -420,7 +447,7 @@ def run_once(cfg: dict, notifier):
                         if not pub_ok or not article_url:
                             product["article_url"] = ""
                             product["screenshot_path"] = ""
-                            notifier.notify_submit_failed(product["name"], "博客园发布失败")
+                            notifier.notify_submit_failed(product["name"], "博客园发布失败", product=product)
                             continue
                         logger.info(f"  ✅ {product['name']}: {article_url}")
                         product["article_url"] = article_url
@@ -440,7 +467,7 @@ def run_once(cfg: dict, notifier):
                 fill_page = new_page(ctx)
                 try:
                     if not scanner.ensure_login(fill_page):
-                        notifier.notify_submit_failed(product["name"], "三丰云登录失败")
+                        notifier.notify_submit_failed(product["name"], "三丰云登录失败", product=product)
                         continue
 
                     result = renewer.fill_and_submit(
@@ -454,11 +481,12 @@ def run_once(cfg: dict, notifier):
                             product["name"], product["article_url"],
                             response=result.get("response_text", "")[:300],
                             next_time=result.get("next_renew_time", ""),
+                            product=product,
                         )
                     else:
-                        notifier.notify_submit_failed(product["name"], result.get("response_text", "")[:200])
+                        notifier.notify_submit_failed(product["name"], result.get("response_text", "")[:200], product=product)
                 except Exception as e:
-                    notifier.notify_submit_failed(product["name"], str(e))
+                    notifier.notify_submit_failed(product["name"], str(e), product=product)
                 finally:
                     fill_page.close()
 
@@ -947,20 +975,8 @@ def main():
 
     setup_logging(cfg.get("logging", {}))
 
-    # 钉钉
-    dt_cfg = cfg.get("dingtalk", {})
-    if dt_cfg.get("enabled", True):
-        notifier = DingTalkNotifier(
-            webhook=dt_cfg["webhook"],
-            secret=dt_cfg["secret"],
-            at_all=dt_cfg.get("at_all", False),
-            at_mobiles=dt_cfg.get("at_mobiles", []),
-        )
-    else:
-        class _Dummy:
-            def __getattr__(self, *a):
-                return lambda *k, **kw: True
-        notifier = _Dummy()
+    # 邮件通知（替代钉钉）：收集结果，结束时发一封汇总邮件
+    notifier = EmailNotifier()
 
     # 路由模式
     if args.test:
@@ -970,6 +986,11 @@ def main():
     else:
         run_loop(cfg, notifier)
 
+    # 单次/测试模式结束后发送汇总邮件（持续模式自身循环内不调用）
+    if args.test or args.once:
+        notifier.send_summary()
+
 
 if __name__ == "__main__":
     main()
+
