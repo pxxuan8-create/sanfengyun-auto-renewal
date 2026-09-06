@@ -309,12 +309,11 @@ class SanfengyunScanner:
         #    ready      → 有发帖地址输入框，表单空，可以提交
         #    in_review  → 有"审核中"相关文字，之前已提交，等审核结果
         #    not_yet    → 未到时间
+        #    注意：页面说明文案里常含"审核完成/审核失败"字样，不能用宽泛的"审核"二字，
+        #          否则会把"可提交"误判成"审核中"。只匹配明确的状态标记，且优先看有没有可提交表单。
         form_status = "not_yet"
         if can_renew:
-            # 检查有没有审核中相关提示
-            review_markers = ["审核中", "处理中", "审核", "待审核", "提交成功"]
-            review_hit = next((m for m in review_markers if m in page_text), None)
-            # 检查有没有"发帖地址"输入框（可提交的标志）
+            # 检查有没有"发帖地址"输入框（可提交的标志）—— 有表单就说明可以提交，优先级最高
             has_form_input = False
             try:
                 form_input = page.locator("input[placeholder*='发帖'], input[placeholder*='网址'], textarea").first
@@ -322,16 +321,21 @@ class SanfengyunScanner:
             except Exception:
                 has_form_input = "发帖地址" in page_text and ("请输入" in page_text or "http" in page_text.lower())
 
-            if review_hit:
-                form_status = "in_review"
-                logger.info(f"[扫描]   🟡 延期 tab 检测到 \"{review_hit}\" → 审核中")
-            elif has_form_input:
+            if has_form_input:
+                # 有可提交表单 → ready（即使页面说明里提到"审核"，只要表单在就能提交）
                 form_status = "ready"
                 logger.info("[扫描]   🟢 延期 tab 有发帖表单 → 可提交")
             else:
-                # 有免费延期按钮（外部）但 tab 内没表单，综合判断
-                form_status = "ready"
-                logger.info("[扫描]   🟢 默认可提交（有免费延期按钮 + 无审核提示）")
+                # 没有表单时，再看是否出现明确的"审核中"状态标记
+                review_markers = ["审核中", "正在审核", "待审核", "提交成功", "处理中"]
+                review_hit = next((m for m in review_markers if m in page_text), None)
+                if review_hit:
+                    form_status = "in_review"
+                    logger.info(f"[扫描]   🟡 延期 tab 检测到 \"{review_hit}\" → 审核中")
+                else:
+                    # 有免费延期按钮（外部）但 tab 内既无表单也无审核标记，综合判断
+                    form_status = "ready"
+                    logger.info("[扫描]   🟢 默认可提交（有免费延期按钮 + 无审核提示）")
         logger.info(f"[扫描]   表单状态: {form_status}")
 
         # 10) 云服务器特殊：几乎随时可以延期，只要没"未到时间"提示就认为可以
