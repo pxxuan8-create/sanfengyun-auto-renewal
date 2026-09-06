@@ -273,12 +273,11 @@ function_catalog:
     signature: "def _notify_scan_result(notifier, results: list)"
     module: sanfengyun_renewal.py
     reusable: no
-    coupling: business_dingtalk
-    side_effect: [http post to dingtalk]
+    coupling: business_email
+    side_effect: [notifier notify_scan -> log only]
     input: notifier, scan results list
     output: None
-    description: format and send scan summary to dingtalk
-    extract_note: dingtalk-specific; skeleton pattern reusable
+    description: format scan results and forward to notifier (email notifier logs only, no per-scan email)
 
   main:
     signature: "def main()"
@@ -566,24 +565,67 @@ function_catalog:
     description: seed default "未到时间/审核中" result rows from scan list
     extract_note: pattern reusable
 
+  EmailNotifier.send_submitted:
+    signature: "def send_submitted(self, product_name, article_url='', ptype='')"
+    module: email_notify.py
+    reusable: partial
+    coupling: external
+    side_effect: [smtp send]
+    description: >
+      Stage 1 email, sent immediately after submit success.
+      Title 【三丰云延期已提交】+ 北京时间; body includes article_url, EXTEND_DAYS by ptype.
+    extract_note: pattern reusable
+
+  EmailNotifier.send_review_success:
+    signature: "def send_review_success(self, product_name, days, old_expire, new_expire, article_url='')"
+    module: email_notify.py
+    reusable: partial
+    coupling: external
+    side_effect: [smtp send]
+    description: >
+      Stage 2 email, sent when review poll sees form_status=not_yet (audit passed).
+      Title 【三丰云延期成功】+ 北京时间; body "到期时间：A → B" + 延期天数.
+    extract_note: pattern reusable
+
+  EmailNotifier.send_review_failed:
+    signature: "def send_review_failed(self, product_name, reason, article_url='')"
+    module: email_notify.py
+    reusable: partial
+    coupling: external
+    side_effect: [smtp send]
+    description: >
+      Stage 3 email, sent on submit failure / review failure / poll timeout.
+      Title 【三丰云延期失败】+ 北京时间; body includes reason.
+    extract_note: pattern reusable
+
+  EmailNotifier.send_check:
+    signature: "def send_check(self, summary='')"
+    module: email_notify.py
+    reusable: partial
+    coupling: external
+    side_effect: [smtp send]
+    description: >
+      Stage 4 email, sent only when no action email was sent this run (all skipped).
+      Title 【三丰云延期检查】+ 北京时间.
+    extract_note: pattern reusable
+
   EmailNotifier.notify_submit_success:
     signature: "def notify_submit_success(self, product_name, article_url='', response='', next_time='', next_run_ts=0, product=None)"
     module: email_notify.py
     reusable: partial
     coupling: business_sanfengyun
-    side_effect: []
+    side_effect: [smtp send]
     description: >
-      Record success. days from EXTEND_DAYS by ptype (vps=5, vhost=30);
-      new_expire = old_expire + days (email body "到期时间：A → B").
-    extract_note: pattern reusable; EXTEND_DAYS project-specific
+      Called on submit success. Forwards to send_submitted (Stage 1 "已提交" email with article link).
+    extract_note: pattern reusable
 
   EmailNotifier.notify_submit_failed:
     signature: "def notify_submit_failed(self, product_name, error, next_run_ts=0, product=None)"
     module: email_notify.py
     reusable: partial
     coupling: business_sanfengyun
-    side_effect: []
-    description: record failure with error text
+    side_effect: [smtp send]
+    description: forward to send_review_failed (Stage 3 email with error reason)
     extract_note: pattern reusable
 
   EmailNotifier.notify_waiting:
@@ -592,7 +634,7 @@ function_catalog:
     reusable: partial
     coupling: business_sanfengyun
     side_effect: []
-    description: record skip reason (in_review / not_activated / not_yet)
+    description: record skip reason (in_review / not_activated / not_yet) - log only
     extract_note: pattern reusable
 
   EmailNotifier.notify_error:
@@ -600,18 +642,9 @@ function_catalog:
     module: email_notify.py
     reusable: partial
     coupling: external
-    side_effect: []
-    description: record script-level error into results
+    side_effect: [smtp send]
+    description: record script-level error; sends a failure email
     extract_note: pattern reusable
-
-  EmailNotifier.build_body:
-    signature: "def build_body(self) -> str"
-    module: email_notify.py
-    reusable: partial
-    coupling: business_sanfengyun
-    side_effect: []
-    description: compose clean summary text (no process logs), per-product lines
-    extract_note: template reusable
 
   EmailNotifier.send_summary:
     signature: "def send_summary(self) -> bool"
@@ -619,6 +652,9 @@ function_catalog:
     reusable: partial
     coupling: external
     side_effect: [smtp send]
+    description: >
+      Called at end of --test/--once. Sends Stage 4 "检查" email ONLY if no action email was sent this run.
+    extract_note: pattern reusable
     description: >
       Send ONE summary email at end of run. Subject state by results:
       any 失败→【三丰云延期失败】; else any 成功→【三丰云延期成功】; else【三丰云延期检查】.

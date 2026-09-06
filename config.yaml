@@ -61,6 +61,12 @@ settings:
   #   vps    = 只扫描免费云服务器
   #   vhost  = 只扫描免费虚拟主机
   scan_scope: "all"
+  # 审核轮询：提交延期后每 N 秒扫一次页面，直到审核通过（form_status=not_yet）或超时
+  #   review_poll_interval = 轮询间隔（秒），默认 300 = 每 5 分钟
+  #   review_max_polls    = 最多轮询次数，默认 36 次 × 5 分钟 ≈ 3 小时
+  #   ⚠️ GitHub Actions 单次 job 最长 6 小时，此参数不要调太大（建议 ≤60 次）
+  review_poll_interval: 300
+  review_max_polls: 36
 
 
 # =====================================================================

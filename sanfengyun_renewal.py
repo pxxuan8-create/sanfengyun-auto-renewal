@@ -459,6 +459,7 @@ def run_once(cfg: dict, notifier):
                 pub_page.close()
 
             # ========== 第四阶段：三丰云填表+提交（sf_page 已登录）==========
+            pending_products = []  # 提交成功的产品，进入审核轮询
             for product in can_renew_products:
                 if not product.get("article_url"):
                     continue
@@ -483,12 +484,24 @@ def run_once(cfg: dict, notifier):
                             next_time=result.get("next_renew_time", ""),
                             product=product,
                         )
+                        pending_products.append({
+                            "name": product["name"],
+                            "ptype": product["ptype"],
+                            "article_url": product["article_url"],
+                            "expire_time": product.get("expire_time", ""),
+                            "page_url": product.get("page_url") or product.get("url", ""),
+                            "_status": "pending",
+                        })
                     else:
                         notifier.notify_submit_failed(product["name"], result.get("response_text", "")[:200], product=product)
                 except Exception as e:
                     notifier.notify_submit_failed(product["name"], str(e), product=product)
                 finally:
                     fill_page.close()
+
+            # ========== 第五阶段：轮询审核结果（每 5 分钟，最多 ~3 小时）==========
+            if pending_products:
+                _poll_review(ctx, scanner, notifier, pending_products, settings)
 
         finally:
             browser.close()
@@ -708,6 +721,7 @@ def run_loop(cfg: dict, notifier):
                         response=result.get("response_text", "")[:300],
                         next_time=result.get("next_renew_time", ""),
                         next_run_ts=next_ts,
+                        product=product,
                     )
                 else:
                     logger.error(f"[执行] ❌ 延期提交失败 → 冷却 30min 重试: {result.get('response_text','')[:200]}")
@@ -924,6 +938,93 @@ def _wait_until(renew_time_str: str):
         time.sleep(1800)
 
 
+def _poll_review(ctx, scanner, notifier, pending_products, settings):
+    """提交延期后轮询审核结果（每 5 分钟扫一次，直到通过/失败/超时）。
+
+    pending_products: list[dict] 已成功提交的产品，含 name/ptype/article_url/expire_time
+    审核通过判据：form_status 从 in_review/ready 变为 not_yet（页面显示"未到提交时间"）
+    超时：轮询超过 max_polls 次仍未通过 → 发"延期失败(超时)"邮件
+    """
+    poll_interval = int(settings.get("review_poll_interval", 300))   # 默认 5 分钟
+    max_polls = int(settings.get("review_max_polls", 36))            # 默认 36 次 ≈ 3 小时
+    dry_run = bool(settings.get("dry_run", False))
+    if dry_run:
+        logger.info("dry_run 模式：跳过审核轮询")
+        return
+
+    logger.info(f"\n{'=' * 60}")
+    logger.info(f"开始轮询审核结果（每 {poll_interval} 秒一次，最多 {max_polls} 次）")
+    logger.info("=" * 60)
+
+    poll_page = None
+    try:
+        for i in range(1, max_polls + 1):
+            remaining = [p for p in pending_products if p.get("_status") not in ("passed", "failed")]
+            if not remaining:
+                break
+            logger.info(f"\n--- 审核轮询 {i}/{max_polls}（剩余 {len(remaining)} 个产品）---")
+
+            if poll_page is None:
+                poll_page = new_page(ctx)
+                if not scanner.ensure_login(poll_page):
+                    logger.error("轮询登录失败")
+                    for p in remaining:
+                        p["_status"] = "failed"
+                        notifier.send_review_failed(p["name"], "轮询登录失败", article_url=p.get("article_url", ""))
+                    break
+
+            for p in remaining:
+                try:
+                    # 重新扫描该产品页面，拿最新 form_status / expire_time
+                    p_url = p.get("page_url") or p.get("url", "")
+                    status = scanner.scan_product(poll_page, {
+                        "name": p["name"], "ptype": p["ptype"], "url": p_url,
+                    })
+                    fstatus = status.get("form_status", "")
+                    new_expire = status.get("expire_time", "")
+                    logger.info(f"  [{p['name']}] form_status={fstatus} 到期={new_expire or '?'}")
+
+                    if fstatus == "not_yet":
+                        # 审核通过：到期时间已顺延（可能仍是旧值，此时提示以控制台为准）
+                        p["_status"] = "passed"
+                        p["new_expire"] = new_expire
+                        days = {"vps": 5, "vhost": 30}.get(p.get("ptype", ""), 0)
+                        notifier.send_review_success(
+                            p["name"], days,
+                            p.get("expire_time", ""), new_expire,
+                            article_url=p.get("article_url", ""),
+                        )
+                    elif fstatus == "in_review":
+                        logger.info(f"  [{p['name']}] 仍在审核中，继续等待")
+                    elif fstatus == "ready":
+                        logger.info(f"  [{p['name']}] 仍显示可提交（审核结果未生效），继续等待")
+                    elif fstatus == "not_activated":
+                        p["_status"] = "failed"
+                        notifier.send_review_failed(p["name"], "产品未开通", article_url=p.get("article_url", ""))
+                except Exception as e:
+                    logger.error(f"  [{p['name']}] 轮询扫描异常: {e}")
+                    # 单个产品异常不致命，留给下一轮
+
+            if all(p.get("_status") in ("passed", "failed") for p in pending_products):
+                break
+            if i < max_polls:
+                logger.info(f"  ⏳ 等待 {poll_interval} 秒后继续轮询...")
+                time.sleep(poll_interval)
+
+        # 轮询结束：仍有未通过的 → 超时
+        for p in pending_products:
+            if p.get("_status") not in ("passed", "failed"):
+                p["_status"] = "failed"
+                notifier.send_review_failed(p["name"], "审核超时未确认（请登录三丰云控制台查看）",
+                                            article_url=p.get("article_url", ""))
+    finally:
+        if poll_page is not None:
+            try:
+                poll_page.close()
+            except Exception:
+                pass
+
+
 def _notify_scan_result(notifier, results: list):
     """发送扫描结果到钉钉（美观 Markdown 格式）"""
     products_out = []
@@ -939,7 +1040,6 @@ def _notify_scan_result(notifier, results: list):
                 next_trigger = datetime.fromtimestamp(ts + TRIGGER_DELAY).strftime("%m-%d %H:%M")
             except Exception:
                 next_trigger = "?"
-
         products_out.append({
             "name": r["name"],
             "form_status": r.get("form_status", "not_yet"),
@@ -975,7 +1075,7 @@ def main():
 
     setup_logging(cfg.get("logging", {}))
 
-    # 邮件通知（替代钉钉）：收集结果，结束时发一封汇总邮件
+    # 邮件通知（替代钉钉）：按阶段发送——提交成功发"已提交"，审核通过发"延期成功"，失败发"延期失败"；无动作时这里补发"检查"邮件
     notifier = EmailNotifier()
 
     # 路由模式
