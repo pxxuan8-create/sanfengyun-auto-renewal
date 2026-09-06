@@ -1,0 +1,58 @@
+name: 三丰云自动延期
+
+permissions:
+  contents: read
+
+on:
+  # 每两天触发一次（UTC 0:00 = 北京 8:00）；workflow 内再做 0~4 小时随机延迟，
+  # 让实际执行时间每次不同，规避"固定时间"的人工检测。
+  schedule:
+    - cron: '0 0 */2 * *'
+
+  # 手动触发
+  workflow_dispatch:
+
+jobs:
+  renew:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Python 环境
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 安装系统依赖（Xvfb 虚拟显示 + 中文字体）
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb fonts-noto-cjk
+
+      - name: 安装 Python 依赖 + Playwright
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install chromium
+          python -m playwright install-deps chromium
+
+      - name: 随机延迟（0~4 小时，避免固定时间）
+        run: |
+          delay=$(( RANDOM % 14400 ))
+          echo "随机延迟 ${delay} 秒（约 $((delay / 60)) 分钟）"
+          sleep ${delay}
+
+      - name: 执行自动延期
+        env:
+          SANFENGYUN_PHONE: ${{ secrets.SANFENGYUN_PHONE }}
+          SANFENGYUN_PASSWORD: ${{ secrets.SANFENGYUN_PASSWORD }}
+          CNBLOGS_EMAIL: ${{ secrets.CNBLOGS_EMAIL }}
+          CNBLOGS_PASSWORD: ${{ secrets.CNBLOGS_PASSWORD }}
+          CNBLOGS_USERNAME: ${{ secrets.CNBLOGS_USERNAME }}
+          SANFENGYUN_VPS_URL: ${{ secrets.SANFENGYUN_VPS_URL }}
+          SANFENGYUN_VHOST_URL: ${{ secrets.SANFENGYUN_VHOST_URL }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          SMTP_TO: ${{ secrets.SMTP_TO }}
+        run: |
+          python sanfengyun_renewal.py --once
