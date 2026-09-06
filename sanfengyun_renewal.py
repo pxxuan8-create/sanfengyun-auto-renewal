@@ -355,6 +355,54 @@ def run_test(cfg: dict, notifier):
             browser.close()
 
 
+def run_status(cfg: dict, notifier):
+    """每日检测模式：只登录三丰云扫描所有产品，不发文不提交，发一封状态日报邮件。
+
+    用于 GitHub Actions 每天一次的 cron 检测（sanfengyun_daily_check.yml）。
+    不启动博客园 / 不填表 / 不提交，仅读取各产品到期时间与延期状态。
+    """
+    logger.info("=" * 60)
+    logger.info("每日检测模式（只扫描，不提交）")
+    logger.info("=" * 60)
+
+    sf_cfg = cfg["sanfengyun"]
+    settings = cfg.get("settings", {})
+    products = [p for p in cfg.get("products", []) if p.get("enabled", True)]
+    _scope = settings.get("scan_scope", "all")
+    if _scope in ("vps", "vhost"):
+        products = [p for p in products if p.get("ptype") == _scope]
+        logger.info(f"[配置] scan_scope={_scope}，只扫描: {[p['name'] for p in products]}")
+
+    scanner = SanfengyunScanner(sf_cfg["phone"], sf_cfg["password"])
+
+    _ensure_display()
+    with sync_playwright() as pw:
+        browser = launch_browser(pw, headless=False)
+        ctx = new_context(browser)
+        try:
+            scan_results = []
+            sf_page = new_page(ctx)
+            try:
+                if scanner.ensure_login(sf_page):
+                    for product in products:
+                        result = scanner.scan_product(sf_page, product)
+                        scan_results.append(result)
+                        logger.info(f"  [{result.get('name')}] form_status={result.get('form_status')} "
+                                    f"到期={result.get('expire_time') or '?'}")
+                else:
+                    logger.error("三丰云登录失败")
+                    notifier.send_daily_status([{"name": "登录失败", "form_status": "登录失败"}])
+            finally:
+                sf_page.close()
+        finally:
+            browser.close()
+
+    if not scan_results:
+        notifier.send_daily_status([])
+        return
+    notifier.send_daily_status(scan_results)
+
+
 def run_once(cfg: dict, notifier):
     """单次完整执行（扫描→到期就完整提交）
     关键：can_renew=True 的立即处理；can_renew=False 的只记录可提交时间，不阻塞其他产品
@@ -1058,6 +1106,7 @@ def main():
     parser = argparse.ArgumentParser(description="三丰云免费产品自动延期脚本 v3")
     parser.add_argument("--test", action="store_true", help="测试模式：扫描→发文→填表(不提交)")
     parser.add_argument("--once", action="store_true", help="单次执行：完整流程（会提交）")
+    parser.add_argument("--status", action="store_true", help="每日检测模式：只扫描发状态邮件，不提交")
     parser.add_argument("--config", type=str, default="", help="自定义配置文件路径")
     args = parser.parse_args()
 
@@ -1081,6 +1130,8 @@ def main():
     # 路由模式
     if args.test:
         run_test(cfg, notifier)
+    elif args.status:
+        run_status(cfg, notifier)
     elif args.once:
         run_once(cfg, notifier)
     else:

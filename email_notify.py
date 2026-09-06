@@ -169,6 +169,36 @@ class EmailNotifier:
         ])
         self._send(subject, body)
 
+    def send_daily_status(self, products: list):
+        """每日检测邮件：列出每个产品当前到期时间 + 延期状态（不执行任何提交）"""
+        subject = f"【三丰云每日检测】{_bj_now()}"
+        lines = [
+            "三丰云免费产品状态日报",
+            "==============================",
+            f"检测时间：{_bj_now()}",
+            "",
+        ]
+        status_name = {"ready": "可提交延期", "in_review": "审核中",
+                       "not_yet": "未到提交时间", "not_activated": "未开通"}
+        for p in products:
+            name = p.get("name", "?")
+            expire = p.get("expire_time", "") or "--"
+            fstatus = p.get("form_status", "?")
+            stxt = status_name.get(fstatus, str(fstatus))
+            renew = p.get("renew_time", "") or ""
+            line = f"[{name}]"
+            line += f"\n  到期时间：{expire}"
+            line += f"\n  延期状态：{stxt}"
+            if renew:
+                line += f"\n  可提交时间：{renew}"
+            lines.append(line)
+        lines += [
+            "",
+            "==============================",
+            "(仅检测状态，未提交任何延期；提交由每 2 天一次的自动延期工作流负责)",
+        ]
+        self._send(subject, "\n".join(lines))
+
     # ------------------------------------------------------------------
     # 兼容旧方法名（主程序 run_once / run_loop 仍按这些名字调用）
     # ------------------------------------------------------------------
