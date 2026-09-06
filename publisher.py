@@ -33,7 +33,7 @@ class CnblogsPublisher:
     def login(self, page) -> bool:
         """登录博客园（含阿里云验证码处理）"""
         logger.info("[博客园] 登录中...")
-        page.goto(self.LOGIN_URL, wait_until="domcontentloaded", timeout=30000)
+        page.goto(self.LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
         page.wait_for_timeout(3000)
 
         # 已登录直接返回
@@ -134,8 +134,10 @@ class CnblogsPublisher:
             content = content.replace(sanitize_from, sanitize_to)
 
         logger.info("[博客园] 进入发文页...")
-        page.goto(self.EDIT_URL, wait_until="domcontentloaded", timeout=30000)
-        page.wait_for_timeout(6000)
+        page.goto(self.EDIT_URL, wait_until="domcontentloaded", timeout=60000)
+        # GitHub Actions runner 在海外，访问博客园慢，显式等标题输入框渲染出来（最多 60 秒）
+        page.wait_for_selector("#post-title", state="visible", timeout=60000)
+        page.wait_for_timeout(2000)
 
         # 填标题
         page.locator("#post-title").click()
@@ -143,6 +145,7 @@ class CnblogsPublisher:
         logger.info(f"[博客园] 标题: {title}")
 
         # 填正文
+        page.wait_for_selector("#md-editor", state="visible", timeout=30000)
         page.locator("#md-editor").click()
         page.keyboard.press("Control+A")
         page.keyboard.type(content, delay=5)

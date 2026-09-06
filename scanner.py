@@ -52,11 +52,11 @@ class SanfengyunScanner:
         import time as _time
         _time.sleep(1)
 
-        # 重试3次
+        # 重试3次（GitHub Actions runner 在海外，访问国内站慢，超时给足 60s）
         for attempt in range(3):
             try:
                 logger.info(f"[登录] 第{attempt+1}次访问登录页...")
-                page.goto(self.LOGIN_URL, wait_until="domcontentloaded", timeout=45000)
+                page.goto(self.LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
                 page.wait_for_timeout(3000)
                 break
             except Exception as e:
