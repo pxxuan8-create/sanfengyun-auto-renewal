@@ -251,7 +251,7 @@ class SanfengyunScanner:
         # 3) 点击"免费延期" tab —— 关键提示（如"还未到时间"）只在这个 tab 里
         tab_clicked = self._click_renew_tab(page)
         logger.info(f"[扫描]   免费延期 tab: {'✅ 已点击' if tab_clicked else '⚠️ 未找到或已是当前tab'}")
-        page.wait_for_timeout(2500)
+        page.wait_for_timeout(4000)  # SPA 切换 tab 是异步渲染，等 4 秒避免读到中间态
 
         # 5) 拿全文 DOM 文本（已切到延期 tab）
         try:
@@ -270,19 +270,26 @@ class SanfengyunScanner:
         if not expire_time:
             expire_time = self._extract_expire_time(page_text, logger)
 
-        # 6) 判断是否未到延期时间（虚拟主机特有提示）
+        # 6) 判断是否未到延期时间
+        #    ⚠️ "您还未到需要提交延期的时间" 是【免费虚拟主机】特有的提示。
+        #       免费云服务器几乎随时可延期，不套用这个判定（否则 SPA 页面切换 tab 时
+        #       读到 vhost 的文案残留，会把 vps 误判成"未到时间"，从而漏掉延期提交）。
         can_renew = True
-        not_yet_markers = [
-            "您还未到需要提交延期的时间",
-            "还未到需要提交延期",
-            "未到提交延期",
-            "还未到延期时间",
-        ]
-        for marker in not_yet_markers:
-            if marker in page_text:
-                can_renew = False
-                logger.info(f"[扫描]   🟢 未到延期时间（页面提示: {marker}）")
-                break
+        if instance_type == "freeVhost":
+            not_yet_markers = [
+                "您还未到需要提交延期的时间",
+                "还未到需要提交延期",
+                "未到提交延期",
+                "还未到延期时间",
+            ]
+            for marker in not_yet_markers:
+                if marker in page_text:
+                    can_renew = False
+                    logger.info(f"[扫描]   🟢 未到延期时间（页面提示: {marker}）")
+                    break
+        else:
+            # freeServer：页面上有发帖表单或"免费延期"按钮即可延期
+            logger.info("[扫描]   freeServer：不套用 vhost 的\"未到延期时间\"判定")
 
         # 7) 提取下次可提交时间（从"请在 2026-09-20 07:58:22 后提交"文本）
         renew_time = ""
