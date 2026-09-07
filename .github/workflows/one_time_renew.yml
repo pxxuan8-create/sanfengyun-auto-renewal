@@ -1,8 +1,8 @@
-name: 一次性延期(2026-09-07 21:40)
+name: 一次性延期(2026-09-08 10:30)
 
 on:
   schedule:
-    - cron: '40 13 7 9 *'   # UTC 13:40 = 北京 21:40，仅 9月7日触发一次
+    - cron: '30 2 8 9 *'   # UTC 02:30 = 北京 10:30，仅 9月8日触发一次
   workflow_dispatch:
 
 jobs:
@@ -28,14 +28,13 @@ jobs:
           python -m playwright install chromium
           python -m playwright install-deps chromium
 
-      - name: 执行自动延期（北京时间 21:40，无随机延迟）
+      - name: 执行自动延期（北京时间 10:30，无随机延迟）
         env:
           SANFENGYUN_PHONE: ${{ secrets.SANFENGYUN_PHONE }}
           SANFENGYUN_PASSWORD: ${{ secrets.SANFENGYUN_PASSWORD }}
           CNBLOGS_EMAIL: ${{ secrets.CNBLOGS_EMAIL }}
           CNBLOGS_PASSWORD: ${{ secrets.CNBLOGS_PASSWORD }}
           CNBLOGS_USERNAME: ${{ secrets.CNBLOGS_USERNAME }}
-          SANFENGYUN_VPS_URL: ${{ secrets.SANFENGYUN_VPS_URL }}
           SANFENGYUN_VPS2_URL: ${{ secrets.SANFENGYUN_VPS2_URL }}
           SMTP_HOST: ${{ secrets.SMTP_HOST }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
