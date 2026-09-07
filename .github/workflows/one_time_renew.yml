@@ -1,0 +1,45 @@
+name: 一次性延期(2026-09-07 21:40)
+
+on:
+  schedule:
+    - cron: '40 13 7 9 *'   # UTC 13:40 = 北京 21:40，仅 9月7日触发一次
+  workflow_dispatch:
+
+jobs:
+  renew-once:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 安装系统依赖（Xvfb + 中文字体）
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb fonts-noto-cjk
+
+      - name: 安装 Python 依赖 + Playwright
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install chromium
+          python -m playwright install-deps chromium
+
+      - name: 执行自动延期（北京时间 21:40，无随机延迟）
+        env:
+          SANFENGYUN_PHONE: ${{ secrets.SANFENGYUN_PHONE }}
+          SANFENGYUN_PASSWORD: ${{ secrets.SANFENGYUN_PASSWORD }}
+          CNBLOGS_EMAIL: ${{ secrets.CNBLOGS_EMAIL }}
+          CNBLOGS_PASSWORD: ${{ secrets.CNBLOGS_PASSWORD }}
+          CNBLOGS_USERNAME: ${{ secrets.CNBLOGS_USERNAME }}
+          SANFENGYUN_VPS_URL: ${{ secrets.SANFENGYUN_VPS_URL }}
+          SANFENGYUN_VPS2_URL: ${{ secrets.SANFENGYUN_VPS2_URL }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          SMTP_TO: ${{ secrets.SMTP_TO }}
+        run: |
+          python sanfengyun_renewal.py --once
