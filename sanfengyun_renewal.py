@@ -124,6 +124,7 @@ def load_config() -> dict:
     # 产品 URL 覆盖（可选，避免把实例 ID 写进公开仓库）
     url_overrides = {
         "vps": "SANFENGYUN_VPS_URL",
+        "vps2": "SANFENGYUN_VPS2_URL",   # 第二个免费云服务器
         "vhost": "SANFENGYUN_VHOST_URL",
     }
     for product in cfg.get("products", []):

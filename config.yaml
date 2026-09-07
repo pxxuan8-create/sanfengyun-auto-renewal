@@ -32,10 +32,16 @@ cnblogs:
 # =====================================================================
 products:
   - key: "vps"
-    name: "免费云服务器"
+    name: "免费云服务器A"
     ptype: "vps"
     enabled: true
-    url: "https://www.sanfengyun.com/control/#/freeServer/100001"
+    url: "https://www.sanfengyun.com/control/#/freeServer/100001"   # 旧实例（占位符，实际走 SANFENGYUN_VPS_URL）
+
+  - key: "vps2"
+    name: "免费云服务器B"
+    ptype: "vps"
+    enabled: true
+    url: "https://www.sanfengyun.com/control/#/freeServer/100002"   # 新实例（占位符，实际走 SANFENGYUN_VPS2_URL）
 
   - key: "vhost"
     name: "免费虚拟主机"

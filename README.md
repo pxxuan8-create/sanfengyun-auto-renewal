@@ -83,7 +83,8 @@ sanfengyun-auto-renewal/
 | `CNBLOGS_EMAIL` | 博客园登录邮箱 |
 | `CNBLOGS_PASSWORD` | 博客园登录密码 |
 | `CNBLOGS_USERNAME` | 博客园用户名（`https://www.cnblogs.com/xxx` 里的 `xxx`） |
-| `SANFENGYUN_VPS_URL` | 免费云服务器实例详情页 URL（`.../freeServer/你的实例ID`） |
+| `SANFENGYUN_VPS_URL` | 免费云服务器A（第一个 vps）实例详情页 URL（`.../freeServer/你的实例ID`） |
+| `SANFENGYUN_VPS2_URL` | 免费云服务器B（第二个 vps）实例详情页 URL（`.../freeServer/你的实例ID`），没有第二个可不填 |
 | `SANFENGYUN_VHOST_URL` | 免费虚拟主机实例详情页 URL（`.../freeVhost/你的实例ID`） |
 | `SMTP_HOST` | SMTP 服务器，如 `smtp.qq.com` |
 | `SMTP_USER` | SMTP 账号（QQ 邮箱填完整邮箱地址） |
@@ -271,17 +272,35 @@ fc-cache -fv
 
 博客园阿里云验证码会检测 `headless=True`。脚本固定 `headless=False` + Xvfb 虚拟显示。workflow 已装并自动启动 Xvfb（`_ensure_display()` 检测无 DISPLAY 时自动起 :99）。**不要改成 headless=True**。
 
-### Q6：我只有一个产品（比如只有 vps）？
+### Q6：我只有一个产品（比如只有 vps）？多个 vps 怎么配？
 
+只有一台免费云服务器：
 ```yaml
 products:
   - key: "vps"
-    name: "免费云服务器"
+    name: "免费云服务器A"
     enabled: true
     url: "https://www.sanfengyun.com/control/#/freeServer/你的实例ID"
   # vhost 那段留着 enabled: false 即可
 ```
 对应地，`SANFENGYUN_VHOST_URL` 不填。
+
+有两台免费云服务器（两个实例各自独立扫描、独立延期）：
+```yaml
+products:
+  - key: "vps"
+    name: "免费云服务器A"
+    ptype: "vps"
+    enabled: true
+    url: "https://www.sanfengyun.com/control/#/freeServer/实例A的ID"   # 走 SANFENGYUN_VPS_URL
+  - key: "vps2"
+    name: "免费云服务器B"
+    ptype: "vps"
+    enabled: true
+    url: "https://www.sanfengyun.com/control/#/freeServer/实例B的ID"   # 走 SANFENGYUN_VPS2_URL
+  # vhost 段留着 enabled: false 即可
+```
+两个实例的 URL Secret 分别填 `SANFENGYUN_VPS_URL` 和 `SANFENGYUN_VPS2_URL`。
 
 ### Q7：随机时间会延迟很久吗？
 
