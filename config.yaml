@@ -28,15 +28,10 @@ cnblogs:
 
 # =====================================================================
 # 延期产品列表（免费云服务器 / 免费虚拟主机）
-# URL 可用环境变量 SANFENGYUN_VPS_URL / SANFENGYUN_VHOST_URL 覆盖（避免把实例 ID 提交到公开仓库）
+# URL 可用环境变量 SANFENGYUN_VPS2_URL / SANFENGYUN_VHOST_URL 覆盖（避免把实例 ID 提交到公开仓库）
+# ⚠️ 旧免费云服务器A（原 key=vps，SANFENGYUN_VPS_URL）已过期删除，已于 2026-09-07 移除，不再扫描
 # =====================================================================
 products:
-  - key: "vps"
-    name: "免费云服务器A"
-    ptype: "vps"
-    enabled: true
-    url: "https://www.sanfengyun.com/control/#/freeServer/100001"   # 旧实例（占位符，实际走 SANFENGYUN_VPS_URL）
-
   - key: "vps2"
     name: "免费云服务器B"
     ptype: "vps"

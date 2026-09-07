@@ -163,6 +163,15 @@ class SanfengyunRenewer:
     def _submit(self, page, ptype: str) -> dict:
         """点击提交按钮，读取结果"""
         logger.info("[延期] 点击提交...")
+        # 先检查页面是否已处于"审核中/等待审核"状态（说明之前已提交成功）：
+        # 此时没有可点的提交按钮，直接视为已提交，避免误报"没找到提交按钮"失败
+        try:
+            body_now = page.inner_text("body")
+            if any(k in body_now for k in ["等待审核", "待审核中", "审核中", "正在审核", "提交成功", "处理中", "稍后查看"]):
+                logger.info("[延期] 页面已处于审核中（之前已提交成功），无需重复提交")
+                return {"success": True, "response_text": "已提交（审核中）", "next_renew_time": ""}
+        except Exception:
+            pass
         try:
             submit = page.locator("button:has-text('提交')").first
             if submit.count() == 0 or not submit.is_visible():
