@@ -47,6 +47,7 @@ jobs:
           SANFENGYUN_PHONE: ${{ secrets.SANFENGYUN_PHONE }}
           SANFENGYUN_PASSWORD: ${{ secrets.SANFENGYUN_PASSWORD }}
           SANFENGYUN_VPS_URL: ${{ secrets.SANFENGYUN_VPS_URL }}
+          SANFENGYUN_VPS2_URL: ${{ secrets.SANFENGYUN_VPS2_URL }}
           SMTP_HOST: ${{ secrets.SMTP_HOST }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
